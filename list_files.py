@@ -86,6 +86,7 @@ def write_cvs(_files, _output_file):
     if 'windows' in platform.system().lower():
         encoding = 'CP1252'
     with open(_output_file, 'w', encoding=encoding, errors='ignore') as fout:
+        logger.info("writing file {}".format(_output_file))
         str_columns = ';'.join(columns)+'\n'
         fout.write(str_columns)
         for fil in _files:
