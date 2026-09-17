@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 import os
 
 from tkinter import *
 
 from tkinter.filedialog import askopenfilename, askdirectory
-import tkinter.tix as tix
 
 # logger -----------------------------------------------
 import logging
