@@ -37,8 +37,8 @@ mode is disabled on other operating systems. Local mode continues to work there.
   responsive. Mounts are managed by the desktop and remain mounted on app exit.
 
 The CSV `path` column retains absolute folder paths in Local mode. In Network
-mode the mounted source path is replaced by `networkName`, followed by the
-relative subfolder, for example `WORKGROUP/Photos/2026`. The separate
+mode the mounted source path is replaced by the configured `folder`, followed by
+the relative subfolder, for example `video/Movies/2026` when `folder` is `video`. The separate
 `:location_label` column still contains the label you entered. The real GVFS path
 is used for reading and copying, never the CSV prefix.
 
@@ -76,7 +76,8 @@ support comments).
 
 `folder` begins with the SMB share name, optionally followed by subfolders. Use a
 hostname or IP for `server`, without `smb://`. `networkName` is the SMB
-workgroup/domain and the CSV path prefix; it defaults to `WORKGROUP` when omitted.
+workgroup/domain; it defaults to `WORKGROUP` when omitted. It does not affect CSV
+paths.
 
 `secrets.json`:
 

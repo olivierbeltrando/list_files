@@ -1,4 +1,5 @@
 """Headless checks for the source/mount state gates, including Return shortcuts."""
+import csv
 import unittest
 from unittest.mock import Mock, patch
 from pathlib import Path
@@ -80,6 +81,29 @@ class GuiStateTests(unittest.TestCase):
             app.process()
             self.assertIn(directory, (source / 'result.csv').read_text())
             self.assertEqual(app.results[1][0][0], 'file.txt')
+
+
+    def test_network_csv_uses_configured_folder_instead_of_workgroup(self):
+        for folder in ('video', '/video/', 'video/Movies'):
+            with self.subTest(folder=folder), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory)
+                (source / 'nested').mkdir()
+                (source / 'root.txt').write_text('root')
+                (source / 'nested' / 'child.txt').write_text('child')
+                app = self.app('network')
+                app.config['networkStorages'][0]['folder'] = folder
+                app.mounted_path = source
+                app.search_name = Value('label')
+                app.simple_search = Value(False)
+                app.result_location = Value(2)
+                app.start = lambda job, callback, status: callback(job())
+                app.process()
+                with (source / 'result.csv').open(newline='') as stream:
+                    rows = list(csv.reader(stream, delimiter=';'))[1:]
+                prefix = folder.strip('/')
+                self.assertEqual({row[1] for row in rows}, {prefix, prefix + '/nested'})
+                self.assertEqual(app.config['networkStorages'][0]['networkName'], 'WORKGROUP')
+                self.assertTrue(all(str(source) in row[1] for row in app.results[1]))
 
 
 if __name__ == '__main__':

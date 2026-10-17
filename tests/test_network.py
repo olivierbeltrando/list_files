@@ -101,8 +101,8 @@ class NetworkTests(unittest.TestCase):
         (source / 'zero').touch()
         rows = list_files.find_files(str(source), 'label', False)
         self.assertEqual(len(rows), 2)
-        exported = list_files.with_path_prefix(rows, source, 'WORKGROUP')
-        self.assertEqual({r[1] for r in exported}, {'WORKGROUP', 'WORKGROUP/nested'})
+        exported = list_files.with_path_prefix(rows, source, 'video')
+        self.assertEqual({r[1] for r in exported}, {'video', 'video/nested'})
         self.assertTrue(all(str(source) in r[1] for r in rows))
         output = self.root / 'result.csv'
         list_files.write_cvs(exported, output)

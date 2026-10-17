@@ -197,7 +197,7 @@ class ListFilesApp(ttk.Frame):
         self.invalidate_results()
         output = self.get_output_path(source)
         label, simple = self.search_name.get(), self.simple_search.get()
-        prefix = self.current_storage()['networkName'] if network else None
+        prefix = self.current_storage()['folder'].strip('/') if network else None
         def job():
             skipped = []
             files = list_files.find_files(str(source), label, _simpleSearch=simple,
