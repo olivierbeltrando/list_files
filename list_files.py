@@ -106,41 +106,6 @@ def with_path_prefix(files, source_directory, prefix):
     return result
 
 
-def copy_files(files, source_directory, destination):
-    """Copy a listing, preserving subfolders and refusing existing destinations."""
-    import shutil
-    from pathlib import Path
-    source = Path(source_directory).resolve()
-    destination = Path(destination).resolve()
-    if destination == source or source in destination.parents:
-        raise ValueError('Choose a destination outside the source directory')
-    plan = []
-    for row in files:
-        original = Path(row[1]) / row[0]
-        # Reject links escaping the selected root, including links changed after Find.
-        original.resolve().relative_to(source)
-        target = destination / original.relative_to(source)
-        target.parent.resolve().relative_to(destination)
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f'Destination already exists: {target}')
-        plan.append((original, target))
-    copied = 0
-    for original, target in plan:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with original.open('rb') as src, target.open('xb') as dst:
-                try:
-                    shutil.copyfileobj(src, dst)
-                except BaseException:
-                    target.unlink()
-                    raise
-            shutil.copystat(original, target)
-        except OSError as error:
-            raise OSError(f'Copy stopped after {copied} files: {error}') from error
-        copied += 1
-    return copied
-
-
 # write the output
 def write_cvs(_files, _output_file):
     # encoding should be utf-8,

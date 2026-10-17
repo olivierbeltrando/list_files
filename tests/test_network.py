@@ -94,7 +94,7 @@ class NetworkTests(unittest.TestCase):
             self.assertEqual(mount_storage(self.storage, self.secrets['main']), self.root)
             self.assertEqual(auth.call_args[0][0], 'smb://nas/share')
 
-    def test_recursive_list_prefix_csv_and_copy(self):
+    def test_recursive_list_prefix_and_csv(self):
         source = self.root / 'source'
         (source / 'nested').mkdir(parents=True)
         (source / 'nested' / 'été;"test.txt').write_text('payload')
@@ -108,23 +108,6 @@ class NetworkTests(unittest.TestCase):
         list_files.write_cvs(exported, output)
         with output.open(newline='') as stream:
             self.assertEqual(list(csv.reader(stream, delimiter=';'))[1:], exported)
-        destination = self.root / 'dest'
-        self.assertEqual(list_files.copy_files(rows, source, destination), 2)
-        self.assertEqual((destination / 'nested' / 'été;"test.txt').read_text(), 'payload')
-        with self.assertRaises(FileExistsError):
-            list_files.copy_files(rows, source, destination)
-        with self.assertRaises(ValueError):
-            list_files.copy_files(rows, source, source / 'inside')
-
-    def test_copy_rejects_escaping_links(self):
-        source = self.root / 'source'
-        source.mkdir()
-        outside = self.root / 'outside'
-        outside.write_text('private')
-        (source / 'link').symlink_to(outside)
-        rows = list_files.find_files(str(source), '', True)
-        with self.assertRaises(ValueError):
-            list_files.copy_files(rows, source, self.root / 'dest')
 
 
 if __name__ == '__main__':

@@ -1,8 +1,7 @@
 # list_files
 
-List files in a local folder or a Linux SMB share, export `result.csv`, and
-optionally copy the listed files to another folder. No third-party Python packages
-are needed. Start the interface with:
+List files in a local folder or a Linux SMB share and export `result.csv`.
+No third-party Python packages are needed. Start the interface with:
 
 ```sh
 python3 gui.py
@@ -19,7 +18,7 @@ sudo apt install libglib2.0-bin gvfs-backends gvfs-fuse
 Run from your normal logged-in graphical desktop session, without sudo. Network
 mode is disabled on other operating systems. Local mode continues to work there.
 
-## Sources and copying
+## Listing files
 
 - **Local:** Browse for a folder, then **Find / generate file list**.
 - **Network:** Select a configured NAS share and click **Mount**. Use **Browse…**
@@ -27,19 +26,13 @@ mode is disabled on other operating systems. Local mode continues to work there.
   list**. Browse and Find are disabled until Mount succeeds, including when a
   share is already mounted. You can pick the mounted root again or another
   subfolder without remounting. Switching shares/modes or saving settings requires
-  mounting again. Cancel keeps the current folder; choosing another folder clears
-  the previous results. The picker accepts folders inside the configured mounted
-  folder only. Output saved in the selected directory goes into that subfolder,
-  and Copy uses that subfolder as its source root.
+  mounting again. Cancel keeps the current folder. The picker accepts folders
+  inside the configured mounted folder only. Output saved in the selected
+  directory goes into that subfolder.
 - The location label is CSV metadata, as in the original application; it does not
   filter filenames. Select the recursive option by unchecking “Only search the
   selected folder”.
-- **Copy files…** copies the files from the last successful Find into a destination
-  you choose, preserving relative subfolders. Existing destination files are never
-  overwritten. Choose a destination outside the source. Copies run in the
-  background; if one fails, earlier completed files remain at the destination.
-  File symlinks are dereferenced only when their targets remain inside the source.
-- Mounting, finding and copying run in background threads so the window remains
+- Mounting and finding run in background threads so the window remains
   responsive. Mounts are managed by the desktop and remain mounted on app exit.
 
 The CSV `path` column retains absolute folder paths in Local mode. In Network
@@ -48,7 +41,7 @@ the relative subfolder, including any subfolder chosen with Browse. For example,
 choosing `Movies` under `video` produces `video/Movies/2026` for files in its
 `2026` subfolder. The separate
 `:location_label` column still contains the label you entered. The real GVFS path
-is used for reading and copying, never the CSV prefix.
+is used for reading, never the CSV prefix.
 
 Unreadable subfolders/files are skipped with a warning in the logs and a skipped
 path count in the UI, so a CSV may be incomplete. An unreadable source root or
@@ -124,6 +117,6 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests cover settings validation/permissions, GIO prompt handling and timeouts,
-mount discovery, UI source gates, listing prefixes, CSV escaping and copying.
+mount discovery, UI source gates, listing prefixes and CSV escaping.
 They run without a display or SMB server. A live NAS/desktop mount remains a
 manual integration check.

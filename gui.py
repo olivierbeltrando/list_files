@@ -33,7 +33,6 @@ class ListFilesApp(ttk.Frame):
         self.result_location = tk.IntVar(value=1)
         self.mounted_path = None
         self.busy = False
-        self.results = None
         self.completed = queue.Queue()
         self.create_widgets()
         self.pack(fill='both', expand=True)
@@ -75,8 +74,7 @@ class ListFilesApp(ttk.Frame):
         self.network_browse_button.grid(row=1, column=1, padx=5, pady=(5, 0))
         options = ttk.LabelFrame(self, text='Search options', padding=10)
         options.grid(row=3, column=0, columnspan=3, sticky='ew', pady=5)
-        ttk.Checkbutton(options, text='Only search the selected folder (not subfolders)', variable=self.simple_search,
-                        command=self.invalidate_results).pack(anchor='w')
+        ttk.Checkbutton(options, text='Only search the selected folder (not subfolders)', variable=self.simple_search).pack(anchor='w')
         output = ttk.LabelFrame(self, text='Output location', padding=10)
         output.grid(row=4, column=0, columnspan=3, sticky='ew', pady=5)
         for value, label in [(1, 'Store result.csv in my home directory'), (2, 'Store result.csv in the selected directory')]:
@@ -85,8 +83,6 @@ class ListFilesApp(ttk.Frame):
         actions.grid(row=5, column=0, columnspan=3, pady=10)
         self.run_button = ttk.Button(actions, text='Find / generate file list', command=self.process)
         self.run_button.pack(side='left', padx=5)
-        self.copy_button = ttk.Button(actions, text='Copy files…', command=self.copy)
-        self.copy_button.pack(side='left', padx=5)
         ttk.Label(self, textvariable=self.status, wraplength=650).grid(row=6, column=0, columnspan=3, sticky='w')
 
     def refresh_sources(self):
@@ -101,14 +97,10 @@ class ListFilesApp(ttk.Frame):
         index = self.share_selector.current()
         return self.config['networkStorages'][index] if index >= 0 else None
 
-    def invalidate_results(self):
-        self.results = None
-        self.update_buttons()
-
     def invalidate(self, event=None):
         self.mounted_path = None
         self.network_directory.set('')
-        self.invalidate_results()
+        self.update_buttons()
         self.status.set('Click Mount before finding files')
 
     def change_mode(self):
@@ -125,7 +117,6 @@ class ListFilesApp(ttk.Frame):
     def update_buttons(self):
         ready = bool(self.directory.get()) if self.mode.get() == 'local' else self.mounted_path is not None
         self.run_button.configure(state='normal' if ready and not self.busy else 'disabled')
-        self.copy_button.configure(state='normal' if self.results and not self.busy else 'disabled')
         self.mount_button.configure(state='normal' if self.current_storage() and not self.busy else 'disabled')
         self.network_browse_button.configure(
             state='normal' if self.mounted_path is not None and not self.busy else 'disabled')
@@ -146,7 +137,7 @@ class ListFilesApp(ttk.Frame):
         selected = filedialog.askdirectory(parent=self.master, title='Select a directory to analyse')
         if selected:
             self.directory.set(selected)
-            self.invalidate_results()
+            self.update_buttons()
             self.status.set('Ready')
 
     def select_network_directory(self):
@@ -168,7 +159,7 @@ class ListFilesApp(ttk.Frame):
             self.status.set('Please choose an existing folder inside the mounted NAS folder')
             return
         self.network_directory.set(str(directory))
-        self.invalidate_results()
+        self.update_buttons()
         self.status.set(f'Ready: {directory}')
 
     def start(self, job, on_success, status):
@@ -230,7 +221,7 @@ class ListFilesApp(ttk.Frame):
             self.invalidate()
             self.status.set('Source is unavailable; select it or mount it again')
             return
-        self.invalidate_results()
+        self.update_buttons()
         output = self.get_output_path(source)
         label, simple = self.search_name.get(), self.simple_search.get()
         prefix = None
@@ -241,28 +232,17 @@ class ListFilesApp(ttk.Frame):
             skipped = []
             files = list_files.find_files(str(source), label, _simpleSearch=simple,
                                          _on_error=skipped.append)
-            # Keep physical paths for copying; export portable paths in network mode.
+            # Export portable paths in network mode.
             exported = list_files.with_path_prefix(files, source, prefix) if network else files
             list_files.write_cvs(exported, output)
             return files, skipped
         def found(result):
             files, skipped = result
-            self.results = (source, files)
             status = f'{len(files)} files written to {output}'
             if skipped:
                 status += f'; WARNING: {len(skipped)} inaccessible paths skipped (see logs)'
             self.status.set(status)
         self.start(job, found, 'Searching…')
-
-    def copy(self):
-        if self.busy or not self.results:
-            return
-        destination = filedialog.askdirectory(parent=self.master, title='Copy listed files to…')
-        if not destination:
-            return
-        source, files = self.results
-        self.start(lambda: list_files.copy_files(files, source, Path(destination)),
-                   lambda count: self.status.set(f'{count} files copied to {destination}'), 'Copying…')
 
 
 def main():

@@ -71,7 +71,7 @@ class PermissionTests(unittest.TestCase):
             app.process()
         self.assertIn('1 inaccessible paths skipped', app.status.get())
         self.assertIn('1 files written', app.status.get())
-        self.assertEqual(app.results[1][0][0], 'visible.txt')
+        self.assertIn('visible.txt', (self.source / 'result.csv').read_text())
         self.assertTrue((self.source / 'result.csv').exists())
 
     def test_background_failures_are_logged_and_displayed(self):
