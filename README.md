@@ -22,9 +22,15 @@ mode is disabled on other operating systems. Local mode continues to work there.
 ## Sources and copying
 
 - **Local:** Browse for a folder, then **Find / generate file list**.
-- **Network:** Select a configured NAS share, click **Mount**, then **Find / generate
-  file list**. Find is disabled until Mount succeeds, including when a share is
-  already mounted. Changing the source or saving settings requires mounting again.
+- **Network:** Select a configured NAS share and click **Mount**. Use **Browse…**
+  beside the mounted folder to choose a subfolder, then **Find / generate file
+  list**. Browse and Find are disabled until Mount succeeds, including when a
+  share is already mounted. You can pick the mounted root again or another
+  subfolder without remounting. Switching shares/modes or saving settings requires
+  mounting again. Cancel keeps the current folder; choosing another folder clears
+  the previous results. The picker accepts folders inside the configured mounted
+  folder only. Output saved in the selected directory goes into that subfolder,
+  and Copy uses that subfolder as its source root.
 - The location label is CSV metadata, as in the original application; it does not
   filter filenames. Select the recursive option by unchecking “Only search the
   selected folder”.
@@ -38,7 +44,9 @@ mode is disabled on other operating systems. Local mode continues to work there.
 
 The CSV `path` column retains absolute folder paths in Local mode. In Network
 mode the mounted source path is replaced by the configured `folder`, followed by
-the relative subfolder, for example `video/Movies/2026` when `folder` is `video`. The separate
+the relative subfolder, including any subfolder chosen with Browse. For example,
+choosing `Movies` under `video` produces `video/Movies/2026` for files in its
+`2026` subfolder. The separate
 `:location_label` column still contains the label you entered. The real GVFS path
 is used for reading and copying, never the CSV prefix.
 

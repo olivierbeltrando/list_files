@@ -25,6 +25,7 @@ class ListFilesApp(ttk.Frame):
             messagebox.showerror('Cannot load settings', str(error), parent=master)
         self.search_name = tk.StringVar()
         self.directory = tk.StringVar()
+        self.network_directory = tk.StringVar()
         self.mode = tk.StringVar(value='local')
         self.share = tk.StringVar()
         self.status = tk.StringVar(value='Select a directory')
@@ -67,6 +68,11 @@ class ListFilesApp(ttk.Frame):
         self.share_selector.bind('<<ComboboxSelected>>', self.invalidate)
         self.mount_button = ttk.Button(self.network_frame, text='Mount', command=self.mount)
         self.mount_button.grid(row=0, column=1, padx=5)
+        ttk.Entry(self.network_frame, textvariable=self.network_directory,
+                  state='readonly').grid(row=1, column=0, sticky='ew', pady=(5, 0))
+        self.network_browse_button = ttk.Button(self.network_frame, text='Browse…',
+                                                command=self.select_network_directory)
+        self.network_browse_button.grid(row=1, column=1, padx=5, pady=(5, 0))
         options = ttk.LabelFrame(self, text='Search options', padding=10)
         options.grid(row=3, column=0, columnspan=3, sticky='ew', pady=5)
         ttk.Checkbutton(options, text='Only search the selected folder (not subfolders)', variable=self.simple_search,
@@ -101,6 +107,7 @@ class ListFilesApp(ttk.Frame):
 
     def invalidate(self, event=None):
         self.mounted_path = None
+        self.network_directory.set('')
         self.invalidate_results()
         self.status.set('Click Mount before finding files')
 
@@ -120,6 +127,8 @@ class ListFilesApp(ttk.Frame):
         self.run_button.configure(state='normal' if ready and not self.busy else 'disabled')
         self.copy_button.configure(state='normal' if self.results and not self.busy else 'disabled')
         self.mount_button.configure(state='normal' if self.current_storage() and not self.busy else 'disabled')
+        self.network_browse_button.configure(
+            state='normal' if self.mounted_path is not None and not self.busy else 'disabled')
         self.share_selector.configure(state='disabled' if self.busy else 'readonly')
         self.settings_button.configure(state='disabled' if self.busy else 'normal')
 
@@ -139,6 +148,28 @@ class ListFilesApp(ttk.Frame):
             self.directory.set(selected)
             self.invalidate_results()
             self.status.set('Ready')
+
+    def select_network_directory(self):
+        if self.busy or self.mounted_path is None:
+            return
+        selected = filedialog.askdirectory(
+            parent=self.master, title='Select a NAS subfolder to analyse',
+            initialdir=self.network_directory.get() or str(self.mounted_path),
+            mustexist=True)
+        if not selected:
+            return
+        try:
+            relative = Path(selected).resolve().relative_to(self.mounted_path.resolve())
+            directory = self.mounted_path / relative
+            if not directory.is_dir():
+                raise ValueError('Selected folder is unavailable')
+        except (OSError, ValueError) as error:
+            logger.warning('Cannot select NAS folder %s: %s', selected, error)
+            self.status.set('Please choose an existing folder inside the mounted NAS folder')
+            return
+        self.network_directory.set(str(directory))
+        self.invalidate_results()
+        self.status.set(f'Ready: {directory}')
 
     def start(self, job, on_success, status):
         if self.busy:
@@ -176,6 +207,7 @@ class ListFilesApp(ttk.Frame):
         self.invalidate()
         def mounted(path):
             self.mounted_path = path
+            self.network_directory.set(str(path))
             self.status.set(f'Mounted: {path}')
         self.start(lambda: mount_storage(storage, self.secrets[storage['credName']]), mounted, 'Mounting…')
 
@@ -186,7 +218,11 @@ class ListFilesApp(ttk.Frame):
         if self.busy:
             return
         network = self.mode.get() == 'network'
-        source = self.mounted_path if network else (Path(self.directory.get()) if self.directory.get() else None)
+        if network:
+            source = (Path(self.network_directory.get()) if self.network_directory.get()
+                      else self.mounted_path) if self.mounted_path is not None else None
+        else:
+            source = Path(self.directory.get()) if self.directory.get() else None
         if source is None:
             self.status.set('Click Mount first' if network else 'Select a directory')
             return
@@ -197,7 +233,10 @@ class ListFilesApp(ttk.Frame):
         self.invalidate_results()
         output = self.get_output_path(source)
         label, simple = self.search_name.get(), self.simple_search.get()
-        prefix = self.current_storage()['folder'].strip('/') if network else None
+        prefix = None
+        if network:
+            prefix = str(Path(self.current_storage()['folder'].strip('/'))
+                         / source.relative_to(self.mounted_path))
         def job():
             skipped = []
             files = list_files.find_files(str(source), label, _simpleSearch=simple,
