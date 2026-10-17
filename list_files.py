@@ -35,7 +35,7 @@ def add_file_to_list(_list,
             "this file was renamed to avoid errors: {}".format(filename)
         )
     _list.append([
-        filename.replace(';', '-'),
+        filename,
         _parent_directory,
         filename.split('.')[-1],
         '%.2f Mo' % (_size/megabyte),
@@ -45,36 +45,100 @@ def add_file_to_list(_list,
 # find the files
 
 
-def find_files(_dir_to_search, _location_label, _simpleSearch=True):
-    import os
-    ret_list = []
+def find_files(_dir_to_search, _location_label, _simpleSearch=True, _on_error=None):
+    """List accessible files; report skipped permission errors through _on_error.
 
-    # directory might be given with / instead of \\
-    # so we normalize it all
-    logger.debug('raw input directory : %s' % _dir_to_search)
+    A denied source root and other I/O failures still abort the scan. Denied
+    children are logged and skipped so one private folder cannot discard results.
+    """
+    import os
+    import stat
+    ret_list = []
+    skipped = 0
     dir_to_search = os.path.abspath(_dir_to_search)
-    logger.info('The directory to explore: %s' % dir_to_search)
+    logger.debug('raw input directory : %s', _dir_to_search)
+    logger.info('The directory to explore: %s', dir_to_search)
+
+    def handle_error(error):
+        nonlocal skipped
+        if (not isinstance(error, PermissionError) or not error.filename
+                or os.path.abspath(error.filename) == dir_to_search):
+            raise error
+        skipped += 1
+        logger.warning('Skipping inaccessible path: %s', error)
+        if _on_error is not None:
+            _on_error(error)
+
+    def add_file(parent, name):
+        full_filename = os.path.join(parent, name)
+        try:
+            info = os.stat(full_filename)
+        except OSError as error:
+            handle_error(error)
+            return
+        if stat.S_ISREG(info.st_mode):
+            add_file_to_list(ret_list, name, parent, info.st_size, _location_label)
 
     if _simpleSearch:
-        # if simple search : just the files in the specified dir
         logger.info('Simple search has been activated')
         for name in os.listdir(dir_to_search):
-            full_filename = os.path.join(dir_to_search, name)
-            if os.path.isfile(full_filename):
-                size = os.stat(full_filename).st_size
-                add_file_to_list(ret_list, name, dir_to_search,
-                                 size, _location_label)
-
+            add_file(dir_to_search, name)
     else:
-        # recursive searche
-        for root, dirs, files in os.walk(dir_to_search, topdown=False):
+        logger.info('Recursive search has been activated')
+        for root, dirs, files in os.walk(dir_to_search, topdown=False, onerror=handle_error):
             for name in files:
-                full_filename = os.path.join(root, name)
-                size = os.stat(full_filename).st_size
-                add_file_to_list(ret_list, name, root, size, _location_label)
+                add_file(root, name)
 
-    logger.info('%d files have been found' % (len(ret_list)))
+    logger.info('%d files have been found; %d inaccessible paths skipped', len(ret_list), skipped)
     return ret_list
+
+
+def with_path_prefix(files, source_directory, prefix):
+    """Replace the local mount path in CSV rows, retaining relative folders."""
+    from pathlib import Path
+    source = Path(source_directory)
+    result = []
+    for row in files:
+        exported = list(row)
+        relative = Path(row[1]).relative_to(source)
+        exported[1] = str(Path(prefix) / relative)
+        result.append(exported)
+    return result
+
+
+def copy_files(files, source_directory, destination):
+    """Copy a listing, preserving subfolders and refusing existing destinations."""
+    import shutil
+    from pathlib import Path
+    source = Path(source_directory).resolve()
+    destination = Path(destination).resolve()
+    if destination == source or source in destination.parents:
+        raise ValueError('Choose a destination outside the source directory')
+    plan = []
+    for row in files:
+        original = Path(row[1]) / row[0]
+        # Reject links escaping the selected root, including links changed after Find.
+        original.resolve().relative_to(source)
+        target = destination / original.relative_to(source)
+        target.parent.resolve().relative_to(destination)
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f'Destination already exists: {target}')
+        plan.append((original, target))
+    copied = 0
+    for original, target in plan:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with original.open('rb') as src, target.open('xb') as dst:
+                try:
+                    shutil.copyfileobj(src, dst)
+                except BaseException:
+                    target.unlink()
+                    raise
+            shutil.copystat(original, target)
+        except OSError as error:
+            raise OSError(f'Copy stopped after {copied} files: {error}') from error
+        copied += 1
+    return copied
 
 
 # write the output
@@ -85,13 +149,11 @@ def write_cvs(_files, _output_file):
     # french language -> iso 8859-15
     if 'windows' in platform.system().lower():
         encoding = 'CP1252'
-    with open(_output_file, 'w', encoding=encoding, errors='ignore') as fout:
-        logger.info("writing file {}".format(_output_file))
-        str_columns = ';'.join(columns)+'\n'
-        fout.write(str_columns)
-        for fil in _files:
-            str_to_write = ';'.join(fil)+'\n'
-            fout.write(str_to_write)
+    import csv
+    with open(_output_file, 'w', encoding=encoding, errors='strict', newline='') as fout:
+        writer = csv.writer(fout, delimiter=';', lineterminator='\n')
+        writer.writerow(columns)
+        writer.writerows(_files)
 
 
 if __name__ == '__main__':
