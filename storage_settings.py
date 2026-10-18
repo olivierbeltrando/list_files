@@ -30,7 +30,12 @@ class StorageSettings(tk.Toplevel):
                 ttk.Label(tab, text=field).grid(row=row, column=0, sticky='w', pady=3)
                 variable = tk.StringVar(value='WORKGROUP' if field == 'networkName' else '')
                 variables[field] = variable
-                ttk.Entry(tab, textvariable=variable, show='*' if field == 'password' else '').grid(row=row, column=1, sticky='ew')
+                if kind == 'Shares' and field == 'credName':
+                    self.credential_picker = ttk.Combobox(tab, textvariable=variable,
+                                                        state='readonly')
+                    self.credential_picker.grid(row=row, column=1, sticky='ew')
+                else:
+                    ttk.Entry(tab, textvariable=variable, show='*' if field == 'password' else '').grid(row=row, column=1, sticky='ew')
             buttons = ttk.Frame(tab)
             buttons.grid(row=len(fields) + 1, column=0, columnspan=2, pady=8)
             for label, action in [('New', self.clear), ('Apply entry', self.apply), ('Delete', self.delete)]:
@@ -45,7 +50,15 @@ class StorageSettings(tk.Toplevel):
         ttk.Button(actions, text='Cancel', command=self.destroy).pack(side='left', padx=5)
         self.refresh()
 
+    def refresh_credentials(self):
+        names = list(self.secrets)
+        self.credential_picker['values'] = names
+        variable = self.forms['Shares'][1]['credName']
+        if variable.get() not in names:
+            variable.set(names[0] if names else '')
+
     def refresh(self):
+        self.refresh_credentials()
         for kind, (listing, _) in self.forms.items():
             listing.delete(0, 'end')
             if kind == 'Credentials':
@@ -61,6 +74,8 @@ class StorageSettings(tk.Toplevel):
         listing.selection_clear(0, 'end')
         for field, variable in variables.items():
             variable.set('WORKGROUP' if field == 'networkName' else '')
+        if kind == 'Shares':
+            self.refresh_credentials()
 
     def select(self, kind):
         listing, variables = self.forms[kind]
@@ -106,6 +121,10 @@ class StorageSettings(tk.Toplevel):
             messagebox.showerror('Settings', str(error), parent=self)
             return
         self.config, self.secrets = config, secrets
+        if kind == 'Credentials' and selected is not None and selected != name:
+            variable = self.forms['Shares'][1]['credName']
+            if variable.get() == selected:
+                variable.set(name)
         self.clear(kind)
         self.refresh()
 

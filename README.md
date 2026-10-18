@@ -18,9 +18,28 @@ sudo apt install libglib2.0-bin gvfs-backends gvfs-fuse
 Run from your normal logged-in graphical desktop session, without sudo. Network
 mode is disabled on other operating systems. Local mode continues to work there.
 
+Local disk discovery uses `lsblk` (util-linux). Mounting an unmounted local disk
+uses `udisksctl` (udisks2), with the desktop's usual authorization dialog if needed.
+These are system tools, not Python packages. If needed on Debian/Ubuntu/Mint:
+
+```sh
+sudo apt install util-linux udisks2
+```
+
+Automatic disk discovery/mounting is implemented on Linux. Windows also lists
+available drive letters; other platforms retain the default filesystem browser.
+Locked encrypted disks must first be unlocked in the desktop file manager.
+
 ## Listing files
 
-- **Local:** Browse for a folder, then **Find / generate file list**.
+- **Local:** Pick a disk/filesystem from the selector. Already mounted disks are
+  immediately available; otherwise click **Mount** first. Then **Browse…** to pick
+  a folder on that disk and **Find / generate file list**. The default filesystem
+  needs no mounting and starts Browse in your home directory. Other disks start
+  Browse at their actual mountpoint (for example `/media/your-user/MyDisk`).
+  **Refresh disks** updates the list after plugging in or removing a disk.
+  Changing disks clears the previous selected folder. Disks remain mounted on
+  app exit.
 - **Network:** Select a configured NAS share and click **Mount**. Use **Browse…**
   beside the mounted folder to choose a subfolder, then **Find / generate file
   list**. Browse and Find are disabled until Mount succeeds, including when a
@@ -50,7 +69,9 @@ other I/O failure stops the operation and is logged with a traceback.
 ## Settings
 
 Open **Shares / credentials…**, create a named credential on the Credentials tab,
-then create a share on the Shares tab referencing that name. **Apply entry** adds
+then create a share on the Shares tab and select that name from the credential
+picker. Only registered credentials can be selected; the picker updates when you
+add, rename or delete credentials. **Apply entry** adds
 or updates each entry in the dialog; **Save settings** writes the changes. Cancel
 discards unapplied/saved dialog edits. Credentials can be renamed; referenced
 shares are updated automatically. Delete or update referencing shares before
@@ -117,6 +138,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests cover settings validation/permissions, GIO prompt handling and timeouts,
-mount discovery, UI source gates, listing prefixes and CSV escaping.
+mount discovery, local disk discovery/mount commands, credential picker updates,
+UI source gates, listing prefixes and CSV escaping.
 They run without a display or SMB server. A live NAS/desktop mount remains a
 manual integration check.

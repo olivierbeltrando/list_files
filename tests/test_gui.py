@@ -1,7 +1,7 @@
 """Headless checks for the source/mount state gates, including Return shortcuts."""
 import csv
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from pathlib import Path
 import tempfile
 
@@ -25,14 +25,19 @@ class GuiStateTests(unittest.TestCase):
         app.mode = Value(mode)
         app.directory = Value('')
         app.network_directory = Value('')
+        app.disk = Value('')
+        app.disks = [dict(device=None, label='Default filesystem', mountpoint='/', initial=str(Path.home()), size='')]
+        app.local_root = Path('/')
+        app.local_initial = str(Path.home())
         app.master = Mock()
         app.status = Value('')
         app.busy = False
         app.mounted_path = None
         app.config = {'networkStorages': [dict(server='nas', folder='share', networkName='WORKGROUP')]}
-        for name in ('run_button', 'mount_button', 'share_selector', 'settings_button', 'network_browse_button'):
-            setattr(app, name, Mock())
+        for name in ('run_button', 'mount_button', 'share_selector', 'settings_button', 'network_browse_button', 'disk_selector', 'disk_refresh_button', 'local_mount_button', 'local_browse_button'):
+            setattr(app, name, MagicMock())
         app.share_selector.current.return_value = 0
+        app.disk_selector.current.return_value = 0
         return app
 
     def test_find_disabled_until_mount_even_for_enter(self):
@@ -172,6 +177,106 @@ class GuiStateTests(unittest.TestCase):
                 app.select_network_directory()
             self.assertEqual(app.network_directory.get(), str(mounted))
             self.assertEqual(app.mounted_path, mounted)
+
+
+    def test_default_local_picker_starts_in_home_without_mounting(self):
+        app = self.app('local')
+        with patch('gui.filedialog.askdirectory', return_value='') as picker:
+            app.select_directory()
+        self.assertEqual(picker.call_args[1]['initialdir'], str(Path.home()))
+        self.assertEqual(app.directory.get(), '')
+        app.local_mount_button.configure.assert_not_called()
+
+    def test_unmounted_local_disk_blocks_browse_and_find(self):
+        app = self.app('local')
+        app.directory.set('/old/disk/folder')
+        app.disks = [dict(device='/dev/sdb1', label='Photos', mountpoint=None, size='1T', initial=None)]
+        app.select_disk()
+        self.assertEqual(app.directory.get(), '')
+        self.assertIsNone(app.local_root)
+        app.local_browse_button.configure.assert_called_with(state='disabled')
+        app.run_button.configure.assert_called_with(state='disabled')
+        app.local_mount_button.configure.assert_called_with(text='Mount', state='normal')
+        with patch('gui.filedialog.askdirectory') as picker:
+            app.select_directory()
+            app.process()
+        picker.assert_not_called()
+        self.assertEqual(app.status.get(), 'Click Mount first')
+
+    def test_mounted_local_disk_starts_browsing_at_its_mountpoint(self):
+        app = self.app('local')
+        with tempfile.TemporaryDirectory() as directory:
+            app.disks = [dict(device='/dev/sdb1', label='Photos', mountpoint=directory, size='1T', initial=directory)]
+            app.select_disk()
+            self.assertEqual(app.local_root, Path(directory))
+            app.local_browse_button.configure.assert_called_with(state='normal')
+            app.local_mount_button.configure.assert_called_with(text='Mounted', state='disabled')
+            with patch('gui.filedialog.askdirectory', return_value='') as picker:
+                app.select_directory()
+            self.assertEqual(picker.call_args[1]['initialdir'], directory)
+
+    def test_local_picker_rejects_folder_outside_selected_disk(self):
+        app = self.app('local')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            disk = root / 'disk'
+            disk.mkdir()
+            (disk / 'outside-link').symlink_to(root, target_is_directory=True)
+            app.local_root = disk
+            app.local_initial = str(disk)
+            for selection in (root, disk / 'outside-link', disk / 'missing'):
+                with self.subTest(selection=selection), \
+                     patch('gui.filedialog.askdirectory', return_value=str(selection)), \
+                     self.assertLogs('gui', level='WARNING'):
+                    app.select_directory()
+                self.assertEqual(app.directory.get(), '')
+            selected = disk / 'Photos'
+            selected.mkdir()
+            with patch('gui.filedialog.askdirectory', return_value=str(selected)):
+                app.select_directory()
+            self.assertEqual(app.directory.get(), str(selected))
+
+    def test_local_mount_updates_selected_disk_and_enables_listing(self):
+        app = self.app('local')
+        app.disks = [dict(device='/dev/sdb1', label='Photos', mountpoint=None, size='1T', initial=None)]
+        app.select_disk()
+        app.start = lambda job, callback, status: callback(job())
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('gui.mount_disk', return_value=Path(directory)) as mount:
+                app.mount_local()
+            app.update_buttons()
+            self.assertEqual(app.directory.get(), directory)
+            self.assertEqual(app.disks[0]['mountpoint'], directory)
+            app.disk_selector.current.assert_called_with(0)
+            app.run_button.configure.assert_called_with(state='normal')
+            mount.assert_called_once_with(app.disks[0])
+
+    def test_refresh_handles_removed_disk_and_returns_to_default(self):
+        app = self.app('local')
+        app.disks = [dict(device='/dev/sdb1', label='Photos', mountpoint='/media/me/Photos', size='1T', initial='/media/me/Photos')]
+        app.select_disk()
+        app.start = lambda job, callback, status: callback(job())
+        from local_storage import default_disk
+        with patch('gui.discover_disks', return_value=[default_disk()]):
+            app.refresh_disks()
+        self.assertIsNone(app.current_disk()['device'])
+        self.assertEqual(app.directory.get(), '')
+        self.assertEqual(app.local_initial, str(Path.home()))
+
+    def test_busy_disables_local_disk_actions(self):
+        app = self.app('local')
+        app.busy = True
+        app.update_buttons()
+        app.local_browse_button.configure.assert_called_with(state='disabled')
+        app.disk_refresh_button.configure.assert_called_with(state='disabled')
+        app.disk_selector.configure.assert_called_with(state='disabled')
+        with patch('gui.filedialog.askdirectory') as picker, patch('gui.mount_disk') as mount:
+            app.mount_local()
+            app.select_directory()
+            app.select_disk()
+            app.refresh_disks()
+        picker.assert_not_called()
+        mount.assert_not_called()
 
 
 if __name__ == '__main__':

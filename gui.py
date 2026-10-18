@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import list_files
 from network_storage import Settings, mount_storage
+from local_storage import default_disk, discover_disks, disk_label, mount_disk
 from storage_settings import StorageSettings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,10 @@ class ListFilesApp(ttk.Frame):
         self.search_name = tk.StringVar()
         self.directory = tk.StringVar()
         self.network_directory = tk.StringVar()
+        self.disk = tk.StringVar()
+        self.disks = [default_disk()]
+        self.local_root = Path(self.disks[0]['mountpoint'])
+        self.local_initial = self.disks[0]['initial']
         self.mode = tk.StringVar(value='local')
         self.share = tk.StringVar()
         self.status = tk.StringVar(value='Select a directory')
@@ -39,6 +44,7 @@ class ListFilesApp(ttk.Frame):
         master.bind('<Return>', self.process)
         self.after(100, self.poll)
         self.refresh_sources()
+        self.after(0, self.refresh_disks)
 
     def create_widgets(self):
         self.columnconfigure(1, weight=1)
@@ -57,8 +63,19 @@ class ListFilesApp(ttk.Frame):
         self.local_frame = ttk.Frame(self)
         self.local_frame.grid(row=2, column=0, columnspan=3, sticky='ew', pady=8)
         self.local_frame.columnconfigure(0, weight=1)
-        ttk.Entry(self.local_frame, textvariable=self.directory, state='readonly').grid(row=0, column=0, sticky='ew')
-        ttk.Button(self.local_frame, text='Browse…', command=self.select_directory).grid(row=0, column=1, padx=5)
+        self.disk_selector = ttk.Combobox(self.local_frame, textvariable=self.disk,
+                                          state='readonly', values=[disk_label(self.disks[0])])
+        self.disk_selector.grid(row=0, column=0, sticky='ew')
+        self.disk_selector.current(0)
+        self.disk_selector.bind('<<ComboboxSelected>>', self.select_disk)
+        self.local_mount_button = ttk.Button(self.local_frame, text='Mount', command=self.mount_local)
+        self.local_mount_button.grid(row=0, column=1, padx=5)
+        self.disk_refresh_button = ttk.Button(self.local_frame, text='Refresh disks', command=self.refresh_disks)
+        self.disk_refresh_button.grid(row=0, column=2, padx=5)
+        ttk.Entry(self.local_frame, textvariable=self.directory, state='readonly').grid(
+            row=1, column=0, sticky='ew', pady=(5, 0))
+        self.local_browse_button = ttk.Button(self.local_frame, text='Browse…', command=self.select_directory)
+        self.local_browse_button.grid(row=1, column=1, padx=5, pady=(5, 0))
         self.network_frame = ttk.Frame(self)
         self.network_frame.grid(row=2, column=0, columnspan=3, sticky='ew', pady=8)
         self.network_frame.columnconfigure(0, weight=1)
@@ -115,13 +132,20 @@ class ListFilesApp(ttk.Frame):
             self.status.set('Ready' if self.directory.get() else 'Select a directory')
 
     def update_buttons(self):
-        ready = bool(self.directory.get()) if self.mode.get() == 'local' else self.mounted_path is not None
+        ready = (self.local_root is not None and bool(self.directory.get())) if self.mode.get() == 'local' else self.mounted_path is not None
         self.run_button.configure(state='normal' if ready and not self.busy else 'disabled')
         self.mount_button.configure(state='normal' if self.current_storage() and not self.busy else 'disabled')
         self.network_browse_button.configure(
             state='normal' if self.mounted_path is not None and not self.busy else 'disabled')
         self.share_selector.configure(state='disabled' if self.busy else 'readonly')
         self.settings_button.configure(state='disabled' if self.busy else 'normal')
+        self.disk_selector.configure(state='disabled' if self.busy else 'readonly')
+        self.disk_refresh_button.configure(state='disabled' if self.busy else 'normal')
+        self.local_mount_button.configure(
+            text='Mounted' if self.local_root is not None else 'Mount',
+            state='normal' if self.local_root is None and self.current_disk() and not self.busy else 'disabled')
+        self.local_browse_button.configure(
+            state='normal' if self.local_root is not None and not self.busy else 'disabled')
 
     def edit_settings(self):
         if not self.busy:
@@ -131,14 +155,77 @@ class ListFilesApp(ttk.Frame):
         self.config, self.secrets = config, secrets
         self.refresh_sources()
 
-    def select_directory(self):
+    def current_disk(self):
+        index = self.disk_selector.current()
+        return self.disks[index] if 0 <= index < len(self.disks) else None
+
+    def select_disk(self, event=None):
         if self.busy:
             return
-        selected = filedialog.askdirectory(parent=self.master, title='Select a directory to analyse')
-        if selected:
-            self.directory.set(selected)
+        disk = self.current_disk()
+        mountpoint = disk['mountpoint'] if disk else None
+        self.local_root = Path(mountpoint) if mountpoint else None
+        self.local_initial = disk['initial'] if disk else None
+        self.directory.set(mountpoint if disk and disk['device'] is not None and mountpoint else '')
+        self.update_buttons()
+        self.status.set('Choose a folder with Browse' if self.local_root is not None else 'Click Mount before browsing this disk')
+
+    def refresh_disks(self):
+        if self.busy:
+            return
+        selected = self.current_disk()
+        old_device = selected['device'] if selected else None
+        old_root, old_directory = self.local_root, self.directory.get()
+        def refreshed(disks):
+            self.disks = disks
+            self.disk_selector['values'] = [disk_label(disk) for disk in disks]
+            index = next((i for i, disk in enumerate(disks) if disk['device'] == old_device), 0)
+            self.disk_selector.current(index)
+            self.select_disk()
+            if (disks[index]['device'] == old_device and self.local_root == old_root
+                    and old_directory and Path(old_directory).is_dir()):
+                self.directory.set(old_directory)
             self.update_buttons()
-            self.status.set('Ready')
+            self.status.set('Disk list refreshed')
+        self.start(discover_disks, refreshed, 'Looking for disks…')
+
+    def mount_local(self):
+        disk = self.current_disk()
+        if self.busy or not disk:
+            return
+        def mounted(path):
+            self.local_root = path
+            self.local_initial = disk['initial'] if disk['device'] is None else str(path)
+            disk['mountpoint'] = str(path)
+            disk['initial'] = self.local_initial
+            self.directory.set('' if disk['device'] is None else str(path))
+            index = self.disk_selector.current()
+            self.disk_selector['values'] = [disk_label(entry) for entry in self.disks]
+            self.disk_selector.current(index)
+            self.status.set(f'Mounted: {path}')
+        self.start(lambda: mount_disk(disk), mounted, 'Mounting disk…')
+
+    def select_directory(self):
+        if self.busy or self.local_root is None:
+            return
+        selected = filedialog.askdirectory(
+            parent=self.master, title='Select a directory to analyse',
+            initialdir=self.directory.get() or self.local_initial or str(self.local_root),
+            mustexist=True)
+        if not selected:
+            return
+        try:
+            directory = Path(selected).resolve()
+            directory.relative_to(self.local_root.resolve())
+            if not directory.is_dir():
+                raise ValueError('Selected folder is unavailable')
+        except (OSError, ValueError) as error:
+            logger.warning('Cannot select local folder %s: %s', selected, error)
+            self.status.set('Please choose an existing folder inside the selected disk')
+            return
+        self.directory.set(str(directory))
+        self.update_buttons()
+        self.status.set('Ready')
 
     def select_network_directory(self):
         if self.busy or self.mounted_path is None:
@@ -213,12 +300,17 @@ class ListFilesApp(ttk.Frame):
             source = (Path(self.network_directory.get()) if self.network_directory.get()
                       else self.mounted_path) if self.mounted_path is not None else None
         else:
-            source = Path(self.directory.get()) if self.directory.get() else None
+            source = Path(self.directory.get()) if self.local_root is not None and self.directory.get() else None
         if source is None:
-            self.status.set('Click Mount first' if network else 'Select a directory')
+            self.status.set('Click Mount first' if network or self.local_root is None else 'Select a directory')
             return
         if not source.is_dir():
-            self.invalidate()
+            if network:
+                self.invalidate()
+            else:
+                self.directory.set('')
+                self.local_root = None
+                self.update_buttons()
             self.status.set('Source is unavailable; select it or mount it again')
             return
         self.update_buttons()
